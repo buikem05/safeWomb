@@ -8,7 +8,7 @@ require('dotenv').config(); // Loads your .env file
 
 // --- IMPORT CONTROLLERS & ROUTES ---
 const analysisController = require('./controllers/analysisController');
-// const analysisRoutes = require('./routes/analysis.routes'); // We will use this in the next step!
+const analysisRoutes = require('./routes/analysis.routes'); // We will use this in the next step!
 
 const app = express();
 // 1. THE MERGE: We wrap Express inside a standard Node HTTP server
@@ -28,8 +28,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // We only need to define this route once!
-app.post('/api/analyze', analysisController.analyzePregnancy);
-// app.use('/api', analysisRoutes); // This is how it will look when we move it
+app.use('/api', analysisRoutes);
 
 // --- WEBSOCKET SERVER (Voice Assistant) ---
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
