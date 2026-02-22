@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const HealthLogSchema = new mongoose.Schema({
     // In a real app, this would link to a User ID. 
-    // For the hackathon MVP, just storing a name or session ID is fine.
+    // For the hackathon MVP, storing a name or session ID.
     userId: {
         type: String, 
         required: false 

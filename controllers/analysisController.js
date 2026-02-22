@@ -1,10 +1,8 @@
-// The new SDK exports "GoogleGenAI"
 const { GoogleGenAI } = require('@google/genai');
 const HealthLog = require('../models/HealthLog');
 const smsService = require('../services/smsService');
 require('dotenv').config();
 
-// 2. INITIALIZE WITH THE NEW CLASS
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 exports.analyzePregnancy = async (req, res) => {
@@ -37,14 +35,13 @@ exports.analyzePregnancy = async (req, res) => {
 
         console.log("Sending symptoms to Gemini...");
         
-        // 3. USE THE CORRECT METHOD FOR THE NEW SDK
-        // The new SDK uses "ai.models.generateContent", NOT "model.generateContent" directly
+        // The new SDK uses "ai.models.generateContent"
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
 
-        // 4. CLEAN THE RESPONSE
+        // CLEAN THE RESPONSE
         // In the new SDK, we must access the candidates array directly.
         const aiText = response.candidates[0].content.parts[0].text;
         let cleanedText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();

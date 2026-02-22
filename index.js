@@ -7,12 +7,12 @@ const { GoogleGenAI } = require('@google/genai');
 require('dotenv').config(); // Loads your .env file
 
 // --- IMPORT CONTROLLERS & ROUTES ---
-const analysisRoutes = require('./routes/analysis.routes'); // We will use this in the next step!
+const analysisRoutes = require('./routes/analysis.routes');
 
 const app = express();
-// 1. THE MERGE: We wrap Express inside a standard Node HTTP server
+// We wrap Express inside a standard Node HTTP server
 const server = http.createServer(app); 
-// 2. We attach the WebSocket server to that exact same HTTP server
+// We attach the WebSocket server to that exact same HTTP server
 const wss = new WebSocketServer({ server }); 
 
 const PORT = process.env.PORT || 5000;
@@ -26,7 +26,7 @@ app.get('/api/health', (req, res) => {
     res.status(200).json({ status: 'success', message: 'SafeWomb is now live' });
 });
 
-// We only need to define this route once!
+
 app.use('/api', analysisRoutes);
 
 // --- WEBSOCKET SERVER (Voice Assistant) ---
