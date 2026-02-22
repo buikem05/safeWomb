@@ -1,13 +1,16 @@
 const express = require('express');
 const router = express.Router();
-
-// Import your controller
 const analysisController = require('../controllers/analysisController');
 
-// Define the route
-// When a POST request hits '/analyze', it hands the work over to your controller function
+// Existing POST route
 router.post('/analyze', analysisController.analyzePregnancy);
 
+// 📍 NEW: GET route to fetch the logs
+router.get('/logs', analysisController.getLogs);
 
-// 3. Export the router so index.js can use it
+// 📍 NEW: GET route for the daily AI tip
+router.get('/daily-tip', analysisController.getDailyTip);
+
+module.exports = router;
+
 module.exports = router;

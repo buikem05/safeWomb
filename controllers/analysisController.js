@@ -6,62 +6,78 @@ require('dotenv').config();
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 exports.analyzePregnancy = async (req, res) => {
-
     try {
-        const { week, symptoms, userId } = req.body;
+        // 1. We now look for 'type' and 'payload' as well
+        const { week, symptoms, userId, phoneNumber, type, payload } = req.body;
 
-        if (!week || !symptoms) {
-            return res.status(400).json({ error: "Please provide both 'week' and 'symptoms'." });
+        // 2. We ONLY require 'week' to be mandatory for both text and voice
+        if (!week) {
+            return res.status(400).json({ error: "Please provide the pregnancy 'week'." });
         }
 
-        const prompt = `
-            Act as a compassionate, expert obstetrician for 'safeWomb AI'.
-            Patient Data:
-            - Pregnancy Week: ${week}
-            - Current Symptoms: "${symptoms}"
+        console.log(`Receiving ${type === 'voice' ? 'AUDIO' : 'TEXT'} for Week ${week}...`);
 
-            Task: Analyze this and return a strictly valid JSON object. 
-            Do not include markdown, code blocks, or extra text. Return ONLY the raw JSON.
+        let aiContents;
+
+        // 3. THE VOICE PROMPT
+        if (type === 'voice') {
+            if (!payload) return res.status(400).json({ error: "Audio payload missing." });
             
-            The JSON must have exactly these keys:
-            {
-                "babyUpdate": "One sentence about how the baby is developing this week.",
-                "momUpdate": "One sentence about what the mother's body is experiencing.",
-                "tips": ["Tip 1", "Tip 2", "Tip 3 (must be related to her symptoms)"],
-                "riskLevel": "Low", "Medium", or "High",
-                "advice": "Clear, actionable medical advice based on the symptoms."
-            }
-        `;
+            aiContents = [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: `Act as a compassionate expert obstetrician for 'safeWomb AI'. The patient is in week ${week} of pregnancy. Listen to her audio symptoms and return ONLY a strictly valid JSON object. The JSON must have exactly these keys: {"babyUpdate": "...", "momUpdate": "...", "tips": ["...", "..."], "riskLevel": "Low/Medium/High", "advice": "..."}` },
+                        {
+                            inlineData: {
+                                mimeType: 'audio/webm', // React Native Web records in webm
+                                data: payload
+                            }
+                        }
+                    ]
+                }
+            ];
+        } 
+        // 4. THE TEXT PROMPT
+        else {
+            if (!symptoms) return res.status(400).json({ error: "Symptoms text missing." });
+            
+            aiContents = [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: `Act as a compassionate expert obstetrician for 'safeWomb AI'. Patient Data: Pregnancy Week: ${week}. Current Symptoms: "${symptoms}". Return ONLY a strictly valid JSON object with these exact keys: {"babyUpdate": "...", "momUpdate": "...", "tips": ["...", "..."], "riskLevel": "Low/Medium/High", "advice": "..."}` }
+                    ]
+                }
+            ];
+        }
 
-        console.log("Sending symptoms to Gemini...");
-        
-        // The new SDK uses "ai.models.generateContent"
+        // 5. Send to Gemini
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
+            model: 'gemini-2.5-flash', // 1.5-flash perfectly handles audio inputs!
+            contents: aiContents,
         });
 
-        // CLEAN THE RESPONSE
-        // In the new SDK, we must access the candidates array directly.
+        // 6. Clean and Parse the JSON
         const aiText = response.candidates[0].content.parts[0].text;
         let cleanedText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
         const analysisData = JSON.parse(cleanedText);
 
-        // Trigger SMS only if risk is high and a phone number is provided
-        if (analysisData.riskLevel === "High") {
+        // 7. Twilio SMS Trigger
+        if (analysisData.riskLevel === "High" && phoneNumber) {
             const alertMessage = `SafeWomb Alert: High Risk detected for week ${week}. Advice: ${analysisData.advice}`;
-            // Assuming the user's phone is sent in the request body
-            await smsService.sendSMS(req.body.phoneNumber, alertMessage); 
+            smsService.sendSMS(phoneNumber, alertMessage).catch(err => console.log("SMS failed:", err.message)); 
         }
 
+        // 8. Save to MongoDB
         const newLog = new HealthLog({
             userId: userId || "AnonymousUser",
             week: week,
-            symptoms: symptoms,
+            symptoms: type === 'voice' ? "Voice Note Submitted" : symptoms,
             aiAnalysis: analysisData
         });
         await newLog.save();
-        console.log("Saved to MongoDB!");
+        console.log("✅ Analysis complete and saved!");
 
         res.status(200).json({
             success: true,
@@ -71,10 +87,49 @@ exports.analyzePregnancy = async (req, res) => {
 
     } catch (error) {
         console.error("Controller Error:", error);
-        res.status(500).json({ 
-            success: false, 
-            message: "Failed to generate analysis", 
-            error: error.message 
+        res.status(500).json({ success: false, message: "Server Error", error: error.message });
+    }
+};
+exports.getLogs = async (req, res) => {
+    try {
+        // Find all logs and sort them by newest first
+        const logs = await HealthLog.find().sort({ createdAt: -1 });
+        
+        res.status(200).json({
+            success: true,
+            data: logs
         });
+    } catch (error) {
+        console.error("Error fetching logs:", error);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+};
+// 📍 NEW: Generate a quick daily tip
+exports.getDailyTip = async (req, res) => {
+    try {
+        const { week } = req.query; // We get the week from the URL (e.g., /api/daily-tip?week=14)
+
+        if (!week) {
+            return res.status(400).json({ error: "Week is required to generate a tip." });
+        }
+
+        const prompt = `Act as a warm, supportive obstetrician. Give exactly ONE short, encouraging, and highly specific daily tip (maximum 2 sentences) for a mother who is in week ${week} of her pregnancy. Do not use formatting like bolding or asterisks.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-1.5-flash',
+            contents: prompt,
+        });
+
+        // Extract the text
+        const dailyTip = response.candidates[0].content.parts[0].text.trim();
+
+        res.status(200).json({
+            success: true,
+            tip: dailyTip
+        });
+
+    } catch (error) {
+        console.error("Daily Tip Error:", error);
+        res.status(500).json({ success: false, message: "Failed to generate tip" });
     }
 };
