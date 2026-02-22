@@ -10,6 +10,16 @@ const getGreeting = () => {
   if (hour < 17) return 'Good Afternoon';
   return 'Good Evening';
 };
+// {/* 📍 UPDATED: Custom Logo Image */}
+//         <View style={styles.logoContainer}>
+//           <Image 
+//             // Make sure you put your logo image file inside your assets/images folder!
+//        resizeMode="contain"
+//           />
+//           <Text style={styles.logoText}>safewomb</Text>
+//         </View>       source={require('../assets/images/images_pregnant-removebg-preview.png')} 
+//             style={styles.logoImage}
+// }
 
 export default function SafeWombDashboard() {
   const router = useRouter();
@@ -26,11 +36,14 @@ export default function SafeWombDashboard() {
 
   const [userName, setUserName] = useState("Mother");
   const [babyName, setBabyName] = useState("Baby");
+  const [babyDob, setBabyDob] = useState("2026-01-01");
 
   const [dueDate, setDueDate] = useState("2026-10-31");
+
   const [overrideWeek, setOverrideWeek] = useState<number | null>(null);
   const [showDateModal, setShowDateModal] = useState(false);
   const [tempDate, setTempDate] = useState("");
+  const [tempWeek, setTempWeek] = useState("");
 
   const [vitDDrops, setVitDDrops] = useState(true);
   const [teethingGel, setTeethingGel] = useState(false);
@@ -39,6 +52,7 @@ export default function SafeWombDashboard() {
   const chartWidth = screenWidth > 768 ? screenWidth - 380 : Math.max(screenWidth - 80, 250);
 
   useEffect(() => {
+    if (params.babyDob) setBabyDob(String(params.babyDob));
     if (params.userName) setUserName(String(params.userName));
     if (params.userWeek) setOverrideWeek(parseInt(String(params.userWeek)));
     if (params.aiResponse) setLatestAiResponse(String(params.aiResponse));
@@ -90,6 +104,23 @@ export default function SafeWombDashboard() {
     currentWeek = overrideWeek;
   }
 
+  const calculateChildAge = (dobString: string) => {
+    const dob = new Date(dobString);
+    const today = new Date();
+    const diffTime = today.getTime() - dob.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 7) return { value: diffDays, label: "Days old" };
+    
+    const diffWeeks = Math.floor(diffDays / 7);
+    if (diffWeeks < 12) return { value: diffWeeks, label: "Weeks old" };
+    
+    const diffMonths = Math.floor(diffDays / 30.44);
+    return { value: diffMonths, label: "Months old" };
+  };
+
+  const childAge = calculateChildAge(babyDob);
+
   // --- FUNCTIONS ---
   const handleToggle = (value: boolean) => {
     if (value) {
@@ -129,13 +160,25 @@ export default function SafeWombDashboard() {
     if (week <= 36) return require('../assets/images/image_32-removebg-preview.png');
     return require('../assets/images/image_36-removebg-preview.png');
   };
-  const saveNewDate = () => {
-    if (tempDate) {
-      setDueDate(tempDate);
-      // This forces the "Week X" calculation to reset based on the new date
-      setOverrideWeek(null);
-      setShowDateModal(false);
+  // 📍 UPDATED: Now it accepts a week, overrides the UI, and auto-calculates the new due date!
+  const saveNewWeek = () => {
+    const parsedWeek = parseInt(tempWeek);
+    
+    // Check if it's a valid pregnancy week (1 to 42)
+    if (!isNaN(parsedWeek) && parsedWeek >= 1 && parsedWeek <= 42) {
+      setOverrideWeek(parsedWeek);
+
+      // Automatically do the math to fix the "Due Date" text below!
+      const today = new Date();
+      const daysLeft = (40 - parsedWeek) * 7;
+      today.setDate(today.getDate() + daysLeft);
+      
+      const newDueString = today.toISOString().split('T')[0];
+      setDueDate(newDueString);
     }
+    
+    setShowDateModal(false);
+    setTempWeek(""); // Clear the input box for next time
   };
 
 
@@ -195,59 +238,28 @@ export default function SafeWombDashboard() {
         </View>
       </Modal>
 
-      {/* Date Modal */}
+      {/* 📍 UPDATED: Week Input Modal */}
       <Modal visible={showDateModal} transparent={true} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { width: 320, padding: 25 }]}>
-            <Ionicons name="calendar" size={50} color="#4bd3a4" style={{ marginBottom: 10 }} />
-
-            <Text style={styles.modalTitle}>Due Date Search</Text>
-
-            <View style={styles.dateDisplayBox}>
-              <Text style={styles.dateDisplayText}>{dueDate}</Text>
-            </View>
-
-            <Text style={[styles.modalText, { marginBottom: 15, fontSize: 13 }]}>
-              Select a new date from the calendar:
-            </Text>
-
-            {/* 📍 UPDATED: Web-native calendar input */}
-            <input
-              type="date"
-              value={tempDate}
-              onChange={(e: any) => setTempDate(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '12px',
-                border: '1px solid #eee',
-                fontSize: '16px',
-                textAlign: 'center',
-                backgroundColor: '#f9f9f9',
-                color: '#333',
-                cursor: 'pointer'
-              }}
+          <View style={[styles.modalCard, { width: 300, padding: 20 }]}>
+            <Text style={styles.modalTitle}>Update Timeline</Text>
+            <Text style={[styles.modalText, { marginBottom: 10 }]}>What week of pregnancy are you in? (1 - 42)</Text>
+            
+            <TextInput 
+              style={styles.dateInput} 
+              placeholder="e.g., 15" 
+              value={tempWeek} 
+              onChangeText={setTempWeek} 
+              keyboardType="numeric" 
+              maxLength={2} 
             />
-
-            <View style={{ flexDirection: 'row', marginTop: 20 }}>
-              <TouchableOpacity
-                style={[styles.modalButton, { flex: 1, backgroundColor: '#eee', marginRight: 10 }]}
-                onPress={() => setShowDateModal(false)}
-              >
-                <Text style={[styles.modalButtonText, { color: '#666' }]}>Close</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalButton, { flex: 1.5 }]}
-                onPress={saveNewDate}
-              >
-                <Text style={styles.modalButtonText}>Update</Text>
-              </TouchableOpacity>
-            </View>
+            
+            <TouchableOpacity style={[styles.modalButton, { marginTop: 15 }]} onPress={saveNewWeek}>
+              <Text style={styles.modalButtonText}>Save Week</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
       {/* Sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.logoContainer}>
@@ -312,11 +324,25 @@ export default function SafeWombDashboard() {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <Text style={styles.cardTitle}>Week {currentWeek}</Text>
-                      <TouchableOpacity onPress={() => setShowDateModal(true)} style={{ marginLeft: 10 }}>
-                        <Ionicons name="search" size={18} color="#4bd3a4" />
+
+                      {/* 📍 UPDATED: Changed from "search" to "pencil" edit icon */}
+                      <TouchableOpacity onPress={() => setShowDateModal(true)} style={{ marginLeft: 10, padding: 5 }}>
+                        <Ionicons name="pencil" size={16} color="#4bd3a4" />
                       </TouchableOpacity>
                     </View>
+
                     <Text style={styles.cardSubtitle}>Your baby is the size of {timelineInfo.size}!</Text>
+
+                    {/* 📍 NEW: Dynamic Due Date & Notification */}
+                    {currentWeek >= 40 ? (
+                      <Text style={[styles.cardSubtitle, { color: '#ff5252', fontWeight: 'bold', marginTop: 10 }]}>
+                        🎉 Baby is due! Time to get ready!
+                      </Text>
+                    ) : (
+                      <Text style={[styles.cardSubtitle, { color: '#888', marginTop: 10, fontWeight: '500' }]}>
+                        Due: {new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </Text>
+                    )}
                   </View>
 
                   <View style={styles.imageContainer}>
@@ -327,6 +353,7 @@ export default function SafeWombDashboard() {
                     />
                   </View>
                 </View>
+
 
                 <View style={[styles.card, { flex: 1 }]}>
                   <Text style={styles.cardTitle}>Stats</Text>
@@ -450,6 +477,25 @@ export default function SafeWombDashboard() {
 }
 
 const styles = StyleSheet.create({
+  logoContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginBottom: 40,
+    paddingHorizontal: 10 // Adjust this if it's too close to the edge
+  },
+  
+  // 📍 NEW: This sizes the image to perfectly match your old icon
+  logoImage: {
+    width: 32,
+    height: 32,
+    marginRight: 8, // Adds a nice little gap between the image and the text
+  },
+  
+  logoText: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    color: '#333' 
+  },
   dashboardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 30, paddingTop: 30, paddingBottom: 10 },
   greetingText: { fontSize: 16, color: '#7a9070', marginBottom: 2, fontWeight: '600', letterSpacing: 0.5 }, // A soft, elegant forest green
   userNameText: { fontSize: 30, fontWeight: '900', color: '#4bd3a4' },
@@ -466,8 +512,6 @@ const styles = StyleSheet.create({
   dateDisplayBox: { backgroundColor: '#f0faf6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#4bd3a4' },
   dateDisplayText: { fontSize: 18, fontWeight: 'bold', color: '#4bd3a4' },
   sidebar: { width: 260, backgroundColor: '#fff', padding: 20, borderRightWidth: 1, borderColor: '#eee' },
-  logoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 40 },
-  logoText: { fontSize: 24, fontWeight: 'bold', color: '#333', marginLeft: 10 },
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   menuText: { fontSize: 16, color: '#555', marginLeft: 15 },
   mainContent: { flex: 1 },

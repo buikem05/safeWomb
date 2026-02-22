@@ -5,42 +5,46 @@ import { useRouter } from 'expo-router';
 
 export default function SignUpScreen() {
   const router = useRouter();
-  
+
   // Basic Info State
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState(''); // 📍 NEW: Phone number state added
   const [motherAge, setMotherAge] = useState('');
-  
+
   // Password State
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  
+
   // Status & Dynamic Child Info State
   const [status, setStatus] = useState<'pregnant' | 'mother'>('pregnant');
-  const [pregnancyWeeks, setPregnancyWeeks] = useState(''); 
-  const [babyDob, setBabyDob] = useState(''); 
+  const [pregnancyWeeks, setPregnancyWeeks] = useState('');
+  const [babyDob, setBabyDob] = useState('');
 
   const handleSignUp = () => {
     if (password !== confirmPassword) {
       Alert.alert("Passwords don't match", "Please make sure your passwords match before continuing.");
       return;
     }
-    
+
     let calculatedDueDate = "";
     let enteredWeek = "14"; // Default fallback
-    
+
     // MATHEMATICS: Convert "Pregnancy Weeks" into a real Due Date
     if (status === 'pregnant') {
       enteredWeek = pregnancyWeeks || "14"; // Captures exactly what she typed!
       const weeks = parseInt(enteredWeek);
       const weeksRemaining = 40 - weeks;
-      
+
       const edd = new Date();
       edd.setDate(edd.getDate() + (weeksRemaining * 7));
       calculatedDueDate = edd.toISOString().split('T')[0];
     }
+
+    // 🧠 TODO: Send 'phone', 'email', 'name', etc., to your MongoDB database later!
+    console.log("Sign up details:", { name, email, phone, motherAge, status });
 
     // Sends the exact parameters back to the Dashboard globally
     router.push({
@@ -51,18 +55,18 @@ export default function SignUpScreen() {
         dueDate: calculatedDueDate,
         userWeek: enteredWeek // Sending the exact number!
       }
-    }); 
+    });
   };
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.container}>
-        
+
         {/* Back Button & Header */}
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        
+
         <View style={styles.header}>
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>Join SafeWomb to track, learn, and grow together.</Text>
@@ -70,13 +74,13 @@ export default function SignUpScreen() {
 
         {/* Status Toggle */}
         <View style={styles.toggleContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.toggleButton, status === 'pregnant' && styles.activeToggle]}
             onPress={() => setStatus('pregnant')}
           >
             <Text style={[styles.toggleText, status === 'pregnant' && styles.activeToggleText]}>I'm Pregnant</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.toggleButton, status === 'mother' && styles.activeToggle]}
             onPress={() => setStatus('mother')}
           >
@@ -87,7 +91,7 @@ export default function SignUpScreen() {
         {/* Sign Up Form */}
         <View style={styles.form}>
           <Text style={styles.sectionLabel}>Personal Information</Text>
-          
+
           <View style={styles.inputContainer}>
             <Ionicons name="person-outline" size={20} color="#888" style={styles.icon} />
             <TextInput style={styles.input} placeholder="Full Name" placeholderTextColor="#aaa" value={name} onChangeText={setName} />
@@ -103,19 +107,32 @@ export default function SignUpScreen() {
             <TextInput style={styles.input} placeholder="Email Address" placeholderTextColor="#aaa" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} />
           </View>
 
+          {/* 📍 NEW: Phone Number Field */}
+          <View style={styles.inputContainer}>
+            <Ionicons name="call-outline" size={20} color="#888" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Phone Number"
+              placeholderTextColor="#aaa"
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
+            />
+          </View>
+
           <Text style={styles.sectionLabel}>
             {status === 'pregnant' ? "Pregnancy Details" : "Baby's Details"}
           </Text>
 
           <View style={styles.inputContainer}>
             <Ionicons name={status === 'pregnant' ? "hourglass-outline" : "calendar-outline"} size={20} color="#888" style={styles.icon} />
-            <TextInput 
-              style={styles.input} 
-              placeholder={status === 'pregnant' ? "Current Pregnancy Age (in weeks)" : "Baby's Date of Birth (YYYY-MM-DD)"} 
-              placeholderTextColor="#aaa" 
+            <TextInput
+              style={styles.input}
+              placeholder={status === 'pregnant' ? "Current Pregnancy Age (in weeks)" : "Baby's Date of Birth (YYYY-MM-DD)"}
+              placeholderTextColor="#aaa"
               keyboardType={status === 'pregnant' ? "numeric" : "default"}
-              value={status === 'pregnant' ? pregnancyWeeks : babyDob} 
-              onChangeText={status === 'pregnant' ? setPregnancyWeeks : setBabyDob} 
+              value={status === 'pregnant' ? pregnancyWeeks : babyDob}
+              onChangeText={status === 'pregnant' ? setPregnancyWeeks : setBabyDob}
             />
           </View>
 
@@ -169,8 +186,8 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 14, fontWeight: 'bold', color: '#555', marginTop: 15, marginBottom: 10, marginLeft: 5 },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 15, marginBottom: 12, paddingHorizontal: 15, height: 60, shadowColor: '#000', shadowOpacity: 0.02, shadowRadius: 5, elevation: 1 },
   icon: { marginRight: 10 },
-  input: { flex: 1, fontSize: 16, color: '#333' },
-  eyeIcon: { padding: 5 }, 
+  input: { flex: 1, fontSize: 16, color: '#333', outlineStyle: 'none' as any }, // Added outlineStyle for cleaner web rendering
+  eyeIcon: { padding: 5 },
   primaryButton: { backgroundColor: '#4bd3a4', borderRadius: 15, height: 60, justifyContent: 'center', alignItems: 'center', marginTop: 20, shadowColor: '#4bd3a4', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
   primaryButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 30 },
