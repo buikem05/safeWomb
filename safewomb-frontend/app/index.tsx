@@ -1,23 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal, Dimensions, TextInput, Image } from 'react-native'; // <-- Added Image here!
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal, Dimensions, TextInput, Image, Alert, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ConfettiCannon from 'react-native-confetti-cannon';
 import { LineChart, ProgressChart } from 'react-native-chart-kit';
 import { useRouter, useGlobalSearchParams } from 'expo-router';
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 17) return 'Good Afternoon';
+  return 'Good Evening';
+};
 
 export default function SafeWombDashboard() {
   const router = useRouter();
-  const params = useGlobalSearchParams(); 
+  const params = useGlobalSearchParams();
 
   // --- APP STATE ---
   const [isChildMode, setIsChildMode] = useState(false);
   const [showBirthModal, setShowBirthModal] = useState(false);
-  
-  const [userName, setUserName] = useState("Mother"); 
-  const [babyName, setBabyName] = useState("Baby"); 
 
-  const [dueDate, setDueDate] = useState("2026-10-31"); 
-  const [overrideWeek, setOverrideWeek] = useState<number | null>(null); 
+  // 📍 NEW: State to control our custom warning popup!
+  const [showWarningModal, setShowWarningModal] = useState(false);
+
+  const [latestAiResponse, setLatestAiResponse] = useState<string | null>(null);
+
+  const [userName, setUserName] = useState("Mother");
+  const [babyName, setBabyName] = useState("Baby");
+
+  const [dueDate, setDueDate] = useState("2026-10-31");
+  const [overrideWeek, setOverrideWeek] = useState<number | null>(null);
   const [showDateModal, setShowDateModal] = useState(false);
   const [tempDate, setTempDate] = useState("");
 
@@ -30,30 +41,36 @@ export default function SafeWombDashboard() {
   useEffect(() => {
     if (params.userName) setUserName(String(params.userName));
     if (params.userWeek) setOverrideWeek(parseInt(String(params.userWeek)));
+    if (params.aiResponse) setLatestAiResponse(String(params.aiResponse));
 
     if (params.mode === 'child') {
       setIsChildMode(true);
       setShowBirthModal(false);
-      if (params.name) setBabyName(String(params.name)); 
+      if (params.name) setBabyName(String(params.name));
     } else if (params.mode === 'pregnancy') {
       setIsChildMode(false);
       if (params.dueDate) setDueDate(String(params.dueDate));
     }
-  }, [params]); 
+  }, [params]);
+  // --- ANIMATION STATE ---
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(15)).current;
 
-  // --- FUNCTIONS ---
-  const handleToggle = (value: boolean) => {
-    if (value) {
-      setShowBirthModal(true);
-    } else {
-      setIsChildMode(false);
-    }
-  };
-
-  const confirmBirth = () => {
-    setShowBirthModal(false);
-    router.push('/baby-setup'); 
-  };
+  useEffect(() => {
+    // Triggers the animation exactly once when the dashboard loads
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000, // 1 second fade
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800, // Slides up slightly faster than the fade
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
 
   const calculatePregnancyWeek = (dueDateString: string) => {
     const due = new Date(dueDateString);
@@ -68,6 +85,31 @@ export default function SafeWombDashboard() {
     return calculatedWeek;
   };
 
+  let currentWeek = calculatePregnancyWeek(dueDate);
+  if (overrideWeek !== null && !isNaN(overrideWeek)) {
+    currentWeek = overrideWeek;
+  }
+
+  // --- FUNCTIONS ---
+  const handleToggle = (value: boolean) => {
+    if (value) {
+      if (currentWeek >= 36) {
+        setShowBirthModal(true);
+      } else {
+        // 📍 UPDATED: Trigger our gorgeous custom modal instead of the browser alert!
+        setShowWarningModal(true);
+      }
+    } else {
+      setIsChildMode(false);
+    }
+  };
+
+
+  const confirmBirth = () => {
+    setShowBirthModal(false);
+    router.push('/baby-setup');
+  };
+
   const getTimelineData = (week: number) => {
     if (week < 14) return { size: "a Lime", desc: "First Trimester! Baby's tiny organs are forming fast." };
     if (week < 23) return { size: "a Banana", desc: "Second Trimester! You might start feeling little flutters." };
@@ -76,37 +118,29 @@ export default function SafeWombDashboard() {
     return { size: "a Watermelon", desc: "Almost there! Your body is preparing for the big day." };
   };
 
-  // 📍 NEW: DYNAMIC IMAGE SELECTOR (Every 4 weeks)
   const getBabyImage = (week: number) => {
-    // These are placeholders. When you have real images, you will replace these lines like this:
-    // if (week <= 4) return require('../assets/images/week-4.png');
-    
     if (week <= 4) return require('../assets/images/image_4_weeks-removebg-preview.png');
     if (week <= 8) return require('../assets/images/image_8_weeks-removebg-preview.png');
     if (week <= 12) return require('../assets/images/image_12_weeks-removebg-preview.png');
-    if (week <= 16) return require('../assets/images/image_16-removebg-preview.png')
-    if (week <= 24) return require('../assets/images/image_20-removebg-preview.png' );
-    if (week <= 28) return require('../assets/images/image_24-removebg-preview.png' );
-    if (week <= 32) return require('../assets/images/image_28-removebg-preview.png' );
-    if (week <= 36) return require('../assets/images/image_32-removebg-preview.png' );
-    return require('../assets/images/image_36-removebg-preview.png' );
+    if (week <= 16) return require('../assets/images/image_16-removebg-preview.png');
+    if (week <= 24) return require('../assets/images/image_20-removebg-preview.png');
+    if (week <= 28) return require('../assets/images/image_24-removebg-preview.png');
+    if (week <= 32) return require('../assets/images/image_28-removebg-preview.png');
+    if (week <= 36) return require('../assets/images/image_32-removebg-preview.png');
+    return require('../assets/images/image_36-removebg-preview.png');
   };
-
   const saveNewDate = () => {
-    if(tempDate.length === 10) {
+    if (tempDate) {
       setDueDate(tempDate);
-      setOverrideWeek(null); 
+      // This forces the "Week X" calculation to reset based on the new date
+      setOverrideWeek(null);
+      setShowDateModal(false);
     }
-    setShowDateModal(false);
   };
 
-  let currentWeek = calculatePregnancyWeek(dueDate);
-  if (overrideWeek !== null && !isNaN(overrideWeek)) {
-    currentWeek = overrideWeek;
-  }
-  
+
   const timelineInfo = getTimelineData(currentWeek);
-  const progressFraction = Math.min(currentWeek / 40, 1); 
+  const progressFraction = Math.min(currentWeek / 40, 1);
 
   // --- CHART DATA ---
   const growthData = {
@@ -126,6 +160,27 @@ export default function SafeWombDashboard() {
 
   return (
     <View style={styles.container}>
+
+      {/* 📍 NEW: Early Warning Modal */}
+      <Modal visible={showWarningModal} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Ionicons name="alert-circle" size={80} color="#ff5252" />
+            <Text style={styles.modalTitle}>Baby isn't born yet! 🛑</Text>
+            <Text style={styles.modalText}>
+              You are currently at Week {currentWeek}. You must be at least 36 weeks along to switch to Child Mode.
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, { backgroundColor: '#ff5252' }]}
+              onPress={() => setShowWarningModal(false)}
+            >
+              <Text style={styles.modalButtonText}>Okay</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Birth Confirmation Modal */}
       <Modal visible={showBirthModal} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -140,83 +195,139 @@ export default function SafeWombDashboard() {
         </View>
       </Modal>
 
+      {/* Date Modal */}
       <Modal visible={showDateModal} transparent={true} animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, {width: 300, padding: 20}]}>
-            <Text style={styles.modalTitle}>Estimated Due Date</Text>
-            <Text style={[styles.modalText, {marginBottom: 10}]}>Format: YYYY-MM-DD</Text>
-            <TextInput style={styles.dateInput} placeholder="e.g., 2026-10-31" value={tempDate} onChangeText={setTempDate} />
-            <TouchableOpacity style={[styles.modalButton, {marginTop: 15}]} onPress={saveNewDate}>
-              <Text style={styles.modalButtonText}>Update Timeline</Text>
-            </TouchableOpacity>
+          <View style={[styles.modalCard, { width: 320, padding: 25 }]}>
+            <Ionicons name="calendar" size={50} color="#4bd3a4" style={{ marginBottom: 10 }} />
+
+            <Text style={styles.modalTitle}>Due Date Search</Text>
+
+            <View style={styles.dateDisplayBox}>
+              <Text style={styles.dateDisplayText}>{dueDate}</Text>
+            </View>
+
+            <Text style={[styles.modalText, { marginBottom: 15, fontSize: 13 }]}>
+              Select a new date from the calendar:
+            </Text>
+
+            {/* 📍 UPDATED: Web-native calendar input */}
+            <input
+              type="date"
+              value={tempDate}
+              onChange={(e: any) => setTempDate(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '12px',
+                border: '1px solid #eee',
+                fontSize: '16px',
+                textAlign: 'center',
+                backgroundColor: '#f9f9f9',
+                color: '#333',
+                cursor: 'pointer'
+              }}
+            />
+
+            <View style={{ flexDirection: 'row', marginTop: 20 }}>
+              <TouchableOpacity
+                style={[styles.modalButton, { flex: 1, backgroundColor: '#eee', marginRight: 10 }]}
+                onPress={() => setShowDateModal(false)}
+              >
+                <Text style={[styles.modalButtonText, { color: '#666' }]}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, { flex: 1.5 }]}
+                onPress={saveNewDate}
+              >
+                <Text style={styles.modalButtonText}>Update</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
 
+      {/* Sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.logoContainer}>
           <Ionicons name="leaf" size={28} color="#4bd3a4" />
           <Text style={styles.logoText}>safewomb</Text>
         </View>
+
         <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/appointments')}>
           <Ionicons name="calendar-outline" size={20} color="#555" />
           <Text style={styles.menuText}>Doctor Appointments</Text>
         </TouchableOpacity>
+
         <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/appointments')}>
           <Ionicons name="medical-outline" size={20} color="#555" />
           <Text style={styles.menuText}>Vaccinations</Text>
         </TouchableOpacity>
+
         <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/journal')}>
           <Ionicons name="journal-outline" size={20} color="#555" />
           <Text style={styles.menuText}>Journal Logs</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.menuItem, { marginTop: 'auto', borderBottomWidth: 0 }]} onPress={() => router.replace('/login')}>
+
+        <View style={[styles.menuItem, { marginTop: 'auto', borderBottomWidth: 0, justifyContent: 'space-between' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="swap-horizontal-outline" size={20} color="#555" />
+            <Text style={styles.menuText}>{isChildMode ? "Child Mode" : "Pregnancy"}</Text>
+          </View>
+          <Switch trackColor={{ false: '#e0e0e0', true: '#4bd3a4' }} thumbColor={'#fff'} onValueChange={handleToggle} value={isChildMode} />
+        </View>
+
+        <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 0, paddingTop: 5 }]} onPress={() => router.replace('/login')}>
           <Ionicons name="log-out-outline" size={20} color="#ff5252" />
           <Text style={[styles.menuText, { color: '#ff5252' }]}>Log Out</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Main Content */}
       <View style={styles.mainContent}>
-        <View style={styles.header}>
-          <Ionicons name="menu" size={28} color="#333" />
-          <View style={styles.headerRight}>
-            <Text style={styles.profileName}>{userName}</Text>
-            <View style={styles.profileAvatar}>
-              <Ionicons name="person" size={16} color="#fff" />
-            </View>
-            <Switch trackColor={{ false: '#e0e0e0', true: '#4bd3a4' }} thumbColor={'#fff'} onValueChange={handleToggle} value={isChildMode} style={{ marginLeft: 15 }} />
-          </View>
+
+        {/* 📍 UPDATED: Animated & Colored Greeting Header */}
+        <View style={styles.dashboardHeader}>
+          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+            <Text style={styles.greetingText}>{getGreeting()},</Text>
+            <Text style={styles.userNameText}>{userName}</Text>
+          </Animated.View>
+          <TouchableOpacity style={styles.profileAvatarContainer}>
+            <Image
+              source={{ uri: `https://ui-avatars.com/api/?name=${userName}&background=4bd3a4&color=fff&size=128&rounded=true` }}
+              style={styles.profileImage}
+            />
+          </TouchableOpacity>
         </View>
+
 
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {!isChildMode ? (
             <View>
               <Text style={styles.pageTitle}>Pregnancy Overview</Text>
-              
-              <View style={[styles.card, { flex: 2, marginRight: 15, backgroundColor: '#eef8f5', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
-                  
-                  {/* Left Side: Text */}
+
+              <View style={styles.topRow}>
+                <View style={[styles.card, { flex: 2, marginRight: 15, backgroundColor: '#eef8f5', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
                   <View style={{ flex: 1 }}>
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <Text style={styles.cardTitle}>Week {currentWeek}</Text>
-                      <TouchableOpacity onPress={() => setShowDateModal(true)} style={{marginLeft: 10}}>
-                        <Ionicons name="pencil" size={16} color="#888" />
+                      <TouchableOpacity onPress={() => setShowDateModal(true)} style={{ marginLeft: 10 }}>
+                        <Ionicons name="search" size={18} color="#4bd3a4" />
                       </TouchableOpacity>
                     </View>
                     <Text style={styles.cardSubtitle}>Your baby is the size of {timelineInfo.size}!</Text>
                   </View>
-                  
-                  {/* Right Side: Image at the edge */}
+
                   <View style={styles.imageContainer}>
-                    <Image 
-                      source={getBabyImage(currentWeek)} 
-                      style={styles.babyImage} 
+                    <Image
+                      source={getBabyImage(currentWeek)}
+                      style={styles.babyImage}
                       resizeMode="contain"
                     />
                   </View>
+                </View>
 
-                
-                
                 <View style={[styles.card, { flex: 1 }]}>
                   <Text style={styles.cardTitle}>Stats</Text>
                   <View style={styles.ringContainer}>
@@ -242,10 +353,21 @@ export default function SafeWombDashboard() {
               </View>
 
               <Text style={styles.sectionTitle}>What to Expect</Text>
+              {latestAiResponse && (
+                <>
+                  <Text style={styles.sectionTitle}>✨ Latest AI Insight</Text>
+                  <View style={[styles.card, { backgroundColor: '#f3e8ff', height: 'auto', minHeight: 120 }]}>
+                    <Text style={[styles.cardTitle, { color: '#6b21a8', textAlign: 'left' }]}>SafeWomb Assistant</Text>
+                    <Text style={[styles.cardSubtitle, { color: '#4c1d95', marginTop: 10, lineHeight: 22 }]}>
+                      {latestAiResponse}
+                    </Text>
+                  </View>
+                </>
+              )}
               <View style={styles.topRow}>
                 <View style={[styles.card, { flex: 1, marginRight: 15, backgroundColor: '#ffe9d6', padding: 20 }]}>
-                   <Text style={[styles.cardTitle, {fontSize: 16}]}>This Week</Text>
-                   <Text style={[styles.cardSubtitle, {marginTop: 10}]}>{timelineInfo.desc}</Text>
+                  <Text style={[styles.cardTitle, { fontSize: 16 }]}>This Week</Text>
+                  <Text style={[styles.cardSubtitle, { marginTop: 10 }]}>{timelineInfo.desc}</Text>
                 </View>
                 <View style={[styles.card, { flex: 1, backgroundColor: '#d6f0ff' }]} />
               </View>
@@ -255,17 +377,23 @@ export default function SafeWombDashboard() {
                 <Text style={styles.cardTitle}>Log Your Symptoms</Text>
                 <Text style={styles.cardSubtitle}>Record cravings, mood, or physical changes.</Text>
                 <View style={styles.buttonRow}>
-                  <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/new-entry')}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => router.push({ pathname: '/new-entry', params: { inputMode: 'voice' } })}
+                  >
                     <Ionicons name="mic" size={24} color="#fff" />
                     <Text style={styles.buttonText}>Voice Log</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.actionButton, styles.secondaryButton]} onPress={() => router.push('/new-entry')}>
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.secondaryButton]}
+                    onPress={() => router.push({ pathname: '/new-entry', params: { inputMode: 'text' } })}
+                  >
                     <Ionicons name="pencil" size={24} color="#7a9070" />
-                    <Text style={[styles.buttonText, {color: '#7a9070'}]}>Type Log</Text>
+                    <Text style={[styles.buttonText, { color: '#7a9070' }]}>Type Log</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-              
             </View>
           ) : (
             <View>
@@ -294,7 +422,7 @@ export default function SafeWombDashboard() {
               <View style={styles.topRow}>
                 <View style={[styles.card, { flex: 1, marginRight: 15, backgroundColor: '#fff9c4', alignItems: 'center', justifyContent: 'center' }]}>
                   <Text style={styles.cardTitle}>Strong Bones</Text>
-                  <Ionicons name="nutrition" size={45} color="#fbc02d" style={{marginTop: 5, marginBottom: 5}}/>
+                  <Ionicons name="nutrition" size={45} color="#fbc02d" style={{ marginTop: 5, marginBottom: 5 }} />
                   <TouchableOpacity onPress={() => router.push('/nutrition')} style={styles.nutritionButton}>
                     <Text style={styles.nutritionButtonText}>View Guide</Text>
                   </TouchableOpacity>
@@ -302,7 +430,7 @@ export default function SafeWombDashboard() {
 
                 <View style={[styles.card, { flex: 1, backgroundColor: '#e3f2fd', alignItems: 'center', justifyContent: 'center' }]}>
                   <Text style={styles.cardTitle}>Sharp Brain</Text>
-                  <Ionicons name="bulb" size={45} color="#1e88e5" style={{marginTop: 5, marginBottom: 5}}/>
+                  <Ionicons name="bulb" size={45} color="#1e88e5" style={{ marginTop: 5, marginBottom: 5 }} />
                   <TouchableOpacity onPress={() => router.push('/nutrition')} style={styles.nutritionButton}>
                     <Text style={styles.nutritionButtonText}>View Guide</Text>
                   </TouchableOpacity>
@@ -322,24 +450,27 @@ export default function SafeWombDashboard() {
 }
 
 const styles = StyleSheet.create({
+  dashboardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 30, paddingTop: 30, paddingBottom: 10 },
+  greetingText: { fontSize: 16, color: '#7a9070', marginBottom: 2, fontWeight: '600', letterSpacing: 0.5 }, // A soft, elegant forest green
+  userNameText: { fontSize: 30, fontWeight: '900', color: '#4bd3a4' },
+  profileAvatarContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#e0e0e0', elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
+  profileImage: { width: '100%', height: '100%', borderRadius: 25 },
   container: { flex: 1, flexDirection: 'row', backgroundColor: '#f4f7f6' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalCard: { width: 320, backgroundColor: '#fff', padding: 30, borderRadius: 25, alignItems: 'center', shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10 },
-  modalTitle: { fontSize: 24, fontWeight: 'bold', color: '#333', marginTop: 15, marginBottom: 10 },
+  modalCard: { width: 320, backgroundColor: '#fff', padding: 30, borderRadius: 25, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10 },
+  modalTitle: { fontSize: 24, fontWeight: 'bold', color: '#333', marginTop: 15, marginBottom: 10, textAlign: 'center' },
   modalText: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 25, lineHeight: 20 },
   modalButton: { backgroundColor: '#4bd3a4', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 30, width: '100%', alignItems: 'center' },
   modalButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   dateInput: { backgroundColor: '#f9f9f9', borderWidth: 1, borderColor: '#eee', padding: 15, borderRadius: 12, fontSize: 16, width: '100%', textAlign: 'center' },
+  dateDisplayBox: { backgroundColor: '#f0faf6', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#4bd3a4' },
+  dateDisplayText: { fontSize: 18, fontWeight: 'bold', color: '#4bd3a4' },
   sidebar: { width: 260, backgroundColor: '#fff', padding: 20, borderRightWidth: 1, borderColor: '#eee' },
   logoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 40 },
   logoText: { fontSize: 24, fontWeight: 'bold', color: '#333', marginLeft: 10 },
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   menuText: { fontSize: 16, color: '#555', marginLeft: 15 },
   mainContent: { flex: 1 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
-  headerRight: { flexDirection: 'row', alignItems: 'center' },
-  profileName: { fontSize: 16, color: '#333', marginRight: 10 },
-  profileAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center' },
   scrollContent: { padding: 30 },
   pageTitle: { fontSize: 28, fontWeight: 'bold', color: '#333', marginBottom: 20 },
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginTop: 30, marginBottom: 15 },
@@ -347,16 +478,8 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#fff', borderRadius: 20, padding: 20, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 10, elevation: 2, height: 180 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', textAlign: 'center' },
   cardSubtitle: { fontSize: 14, color: '#666', marginTop: 5 },
-  
-  // 📍 NEW IMAGE STYLES
- // 📍 UPDATED: Increased size to beautifully fill the card's height
-  imageContainer: { 
-    height: 140, 
-    width: 140, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    marginLeft: 10 
-  },
+
+  imageContainer: { height: 140, width: 140, justifyContent: 'center', alignItems: 'center', marginLeft: 10 },
   babyImage: { width: '100%', height: '100%' },
 
   babyAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#e0e0e0', marginBottom: 10 },

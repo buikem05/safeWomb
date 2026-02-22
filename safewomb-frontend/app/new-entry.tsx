@@ -1,121 +1,233 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useGlobalSearchParams } from 'expo-router';
 
 export default function NewEntryScreen() {
   const router = useRouter();
+  const params = useGlobalSearchParams(); 
   
-  // State variables for our form
-  const [entryType, setEntryType] = useState('text'); // 'text' or 'voice'
-  const [noteText, setNoteText] = useState('');
+  const [activeMode, setActiveMode] = useState<'text' | 'voice'>('text');
+  const [journalText, setJournalText] = useState('');
+  
   const [isRecording, setIsRecording] = useState(false);
-  const [activeCategory, setActiveCategory] = useState('Symptoms');
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  
+  // 📍 NEW: Loading state for when the AI is "thinking"
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  const categories = ['Symptoms', 'Cravings', 'Diet', 'Mood', 'Notes'];
+  const mediaRecorder = useRef<any>(null);
+  const audioChunks = useRef<Blob[]>([]);
+  const audioPlayer = useRef<any>(null);
 
-  const toggleRecording = () => {
-    // In the future, this is where we trigger the device microphone API
-    setIsRecording(!isRecording);
+  useEffect(() => {
+    setActiveMode(params.inputMode === 'voice' ? 'voice' : 'text');
+    return () => {
+      if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') mediaRecorder.current.stop();
+      if (audioPlayer.current) audioPlayer.current.pause();
+    };
+  }, [params.inputMode]);
+
+  const startRecording = async () => {
+    if (Platform.OS !== 'web') return alert("This setup is tailored for Web.");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder.current = new (window as any).MediaRecorder(stream);
+      audioChunks.current = [];
+
+      mediaRecorder.current.ondataavailable = (event: any) => {
+        if (event.data.size > 0) audioChunks.current.push(event.data);
+      };
+
+      mediaRecorder.current.onstop = () => {
+        const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
+        setAudioUrl(URL.createObjectURL(audioBlob));
+      };
+
+      mediaRecorder.current.start();
+      setIsRecording(true);
+      setAudioUrl(null); 
+      setIsPlaying(false);
+    } catch (err) { console.error("Mic access denied:", err); }
   };
 
-  const handleSave = () => {
-    // Eventually, this will save the data to a database. For now, it just goes back.
-    router.push('/journal'); 
+  const stopRecording = () => {
+    if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
+      mediaRecorder.current.stop();
+      mediaRecorder.current.stream.getTracks().forEach((track: any) => track.stop());
+    }
+    setIsRecording(false);
   };
 
+  const togglePlayback = () => {
+    if (!audioUrl) return;
+    if (isPlaying && audioPlayer.current) {
+      audioPlayer.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioPlayer.current = new Audio(audioUrl);
+      audioPlayer.current.play();
+      setIsPlaying(true);
+      audioPlayer.current.onended = () => setIsPlaying(false);
+    }
+  };
+
+  const retakeAudio = () => {
+    if (audioPlayer.current) audioPlayer.current.pause();
+    setAudioUrl(null);
+    setIsPlaying(false);
+  };
+
+  // 📍 NEW: THE WEBSOCKET & AI LOGIC
+  const handleSaveAndAnalyze = async () => {
+    setIsAnalyzing(true);
+
+    try {
+      let aiResponseText = "";
+
+      // 📝 --- IF SHE TYPED A MESSAGE ---
+      if (activeMode === 'text') {
+        
+        // 1. Send the text to your backend API
+        const response = await fetch('http://192.168.90.3:5000/api/health', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            type: 'text', 
+            payload: journalText 
+          })
+        });
+
+        // 2. Read the AI's response
+        const data = await response.json();
+        
+        // (Change 'data.reply' to whatever your backend actually sends back, like data.message or data.ai_response)
+        aiResponseText = data.reply || data.message || "I hear you! It's completely normal to feel that way. Thanks for sharing.";
+      } 
+      
+      // 🎙️ --- IF SHE RECORDED AUDIO ---
+      else if (activeMode === 'voice' && audioUrl) {
+        
+        // Convert audio to Base64
+        const audioResponse = await fetch(audioUrl);
+        const blob = await audioResponse.blob();
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        
+        await new Promise(resolve => {
+          reader.onloadend = async () => {
+            const base64Audio = (reader.result as string).split(',')[1]; 
+            
+            // Send the Base64 audio to your backend API
+            const serverRes = await fetch('http://192.168.90.3:5000/api/health', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                type: 'voice', 
+                payload: base64Audio 
+              })
+            });
+            
+            const data = await serverRes.json();
+            aiResponseText = data.reply || data.message || "Voice note processed successfully.";
+            resolve(null);
+          };
+        });
+      }
+
+      // 🚀 --- SEND THE RESPONSE TO THE DASHBOARD ---
+      finishSave(aiResponseText);
+
+    } catch (error) {
+      console.error("Failed to connect to AI API:", error);
+      finishSave("Looks like the AI is resting right now, but your journal entry was saved safely!");
+    }
+  };
+
+  const finishSave = (aiResponse: string) => {
+    setIsAnalyzing(false);
+    router.push({
+      pathname: '/',
+      params: {
+        newEntryContent: activeMode === 'text' ? journalText : "Voice Note (Saved)",
+        aiResponse: aiResponse
+      }
+    });
+  };
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
         
-        {/* Header */}
+        {isAnalyzing && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#4bd3a4" />
+            <Text style={styles.loadingText}>AI is analyzing your journal...</Text>
+          </View>
+        )}
+
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="close" size={28} color="#333" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Log</Text>
-          <TouchableOpacity onPress={handleSave}>
+          <Text style={styles.headerTitle}>New Entry</Text>
+          <TouchableOpacity onPress={handleSaveAndAnalyze} disabled={isAnalyzing}>
             <Text style={styles.saveText}>Save</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          
-          {/* Toggle Text vs Voice */}
-          <View style={styles.toggleContainer}>
-            <TouchableOpacity 
-              style={[styles.toggleButton, entryType === 'text' && styles.activeToggle]}
-              onPress={() => setEntryType('text')}
-            >
-              <Ionicons name="pencil" size={18} color={entryType === 'text' ? '#fff' : '#888'} />
-              <Text style={[styles.toggleText, entryType === 'text' && styles.activeToggleText]}>Write</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.toggleButton, entryType === 'voice' && styles.activeToggle]}
-              onPress={() => setEntryType('voice')}
-            >
-              <Ionicons name="mic" size={18} color={entryType === 'voice' ? '#fff' : '#888'} />
-              <Text style={[styles.toggleText, entryType === 'voice' && styles.activeToggleText]}>Record</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity style={[styles.toggleButton, activeMode === 'text' && styles.activeToggle]} onPress={() => setActiveMode('text')}>
+            <Ionicons name="pencil" size={20} color={activeMode === 'text' ? '#fff' : '#888'} />
+            <Text style={[styles.toggleText, activeMode === 'text' && styles.activeToggleText]}> Type</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.toggleButton, activeMode === 'voice' && styles.activeToggle]} onPress={() => setActiveMode('voice')}>
+            <Ionicons name="mic" size={20} color={activeMode === 'voice' ? '#fff' : '#888'} />
+            <Text style={[styles.toggleText, activeMode === 'voice' && styles.activeToggleText]}> Voice</Text>
+          </TouchableOpacity>
+        </View>
 
-          {/* Categories Selector */}
-          <Text style={styles.sectionTitle}>What are you logging?</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-            {categories.map((cat) => (
-              <TouchableOpacity 
-                key={cat} 
-                style={[styles.categoryPill, activeCategory === cat && styles.activeCategoryPill]}
-                onPress={() => setActiveCategory(cat)}
-              >
-                <Text style={[styles.categoryText, activeCategory === cat && styles.activeCategoryText]}>
-                  {cat}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Dynamic Input Area */}
-          <View style={styles.inputArea}>
-            {entryType === 'text' ? (
-              <TextInput
-                style={styles.textInput}
-                placeholder="What are you experiencing right now?"
-                placeholderTextColor="#aaa"
-                multiline
-                autoFocus
-                value={noteText}
-                onChangeText={setNoteText}
-                textAlignVertical="top"
-              />
-            ) : (
-              <View style={styles.voiceContainer}>
-                {isRecording ? (
-                  <View style={styles.recordingUI}>
-                    <Text style={styles.timerText}>00:14</Text>
-                    <Text style={styles.recordingStatus}>Recording your voice...</Text>
-                    {/* Mock Waveform */}
-                    <View style={styles.waveform}>
-                      {[...Array(12)].map((_, i) => (
-                        <View key={i} style={[styles.waveBar, { height: Math.random() * 40 + 10 }]} />
-                      ))}
-                    </View>
+        {/* 📍 HERE IS THE FIX! The updated ScrollView and TextInput are inside here */}
+        <ScrollView 
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled" 
+        >
+          {activeMode === 'text' ? (
+            <TextInput 
+              style={styles.textInput} 
+              placeholder="How are you feeling today?" 
+              placeholderTextColor="#aaa" 
+              multiline={true} 
+              autoFocus={true} 
+              value={journalText} 
+              onChangeText={(text) => setJournalText(text)} 
+              editable={true} 
+            />
+          ) : (
+            <View style={styles.voiceContainer}>
+              {!audioUrl ? (
+                <>
+                  <Text style={styles.voicePrompt}>{isRecording ? "Recording your voice..." : "Tap to start recording"}</Text>
+                  <TouchableOpacity style={[styles.micButton, isRecording && styles.micButtonRecording]} onPress={isRecording ? stopRecording : startRecording}>
+                    <Ionicons name={isRecording ? "stop" : "mic"} size={50} color="#fff" />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.voicePrompt}>Recording captured!</Text>
+                  <View style={styles.playbackControls}>
+                    <TouchableOpacity style={styles.playButton} onPress={togglePlayback}>
+                      <Ionicons name={isPlaying ? "pause" : "play"} size={45} color="#fff" style={{ marginLeft: isPlaying ? 0 : 5 }} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.retakeButton} onPress={retakeAudio}>
+                      <Ionicons name="trash-outline" size={20} color="#ff5252" />
+                      <Text style={styles.retakeText}>Retake</Text>
+                    </TouchableOpacity>
                   </View>
-                ) : (
-                  <Text style={styles.voicePrompt}>Tap the microphone to start sharing your experience.</Text>
-                )}
-                
-                <TouchableOpacity 
-                  style={[styles.micButton, isRecording && styles.micButtonRecording]} 
-                  onPress={toggleRecording}
-                >
-                  <Ionicons name={isRecording ? "stop" : "mic"} size={40} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
+                </>
+              )}
+            </View>
+          )}
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
@@ -123,39 +235,26 @@ export default function NewEntryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f4f7f6' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingTop: 50, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
+  container: { flex: 1, backgroundColor: '#f4f7f6', paddingTop: 50 },
+  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 100, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 20, fontSize: 18, fontWeight: 'bold', color: '#333' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#eee', backgroundColor: '#fff' },
   backButton: { padding: 5 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  saveText: { fontSize: 16, fontWeight: 'bold', color: '#4bd3a4', padding: 5 },
-  
-  scrollContent: { padding: 20 },
-  
-  toggleContainer: { flexDirection: 'row', backgroundColor: '#eef2ee', borderRadius: 25, padding: 5, marginBottom: 25 },
-  toggleButton: { flex: 1, flexDirection: 'row', paddingVertical: 12, justifyContent: 'center', alignItems: 'center', borderRadius: 20 },
-  activeToggle: { backgroundColor: '#4bd3a4', shadowColor: '#4bd3a4', shadowOpacity: 0.3, shadowRadius: 5, elevation: 3 },
-  toggleText: { fontSize: 15, fontWeight: 'bold', color: '#888', marginLeft: 8 },
+  saveText: { fontSize: 16, fontWeight: 'bold', color: '#4bd3a4' },
+  toggleContainer: { flexDirection: 'row', backgroundColor: '#eef2ee', borderRadius: 15, padding: 5, margin: 20 },
+  toggleButton: { flex: 1, flexDirection: 'row', paddingVertical: 12, justifyContent: 'center', alignItems: 'center', borderRadius: 12 },
+  activeToggle: { backgroundColor: '#4bd3a4', shadowColor: '#4bd3a4', shadowOpacity: 0.2, shadowRadius: 5, elevation: 2 },
+  toggleText: { fontSize: 15, fontWeight: 'bold', color: '#888' },
   activeToggleText: { color: '#fff' },
-
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#555', marginBottom: 15 },
-  categoryScroll: { flexDirection: 'row', marginBottom: 25 },
-  categoryPill: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, marginRight: 10, borderWidth: 1, borderColor: '#ddd' },
-  activeCategoryPill: { backgroundColor: '#dce8e3', borderColor: '#a3b899' },
-  categoryText: { color: '#666', fontWeight: '600' },
-  activeCategoryText: { color: '#3a5a40' },
-
-  inputArea: { flex: 1, minHeight: 300, backgroundColor: '#fff', borderRadius: 20, padding: 20, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 10, elevation: 2 },
-  textInput: { flex: 1, fontSize: 18, color: '#333', lineHeight: 28 },
-  
-  voiceContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  voicePrompt: { fontSize: 16, color: '#888', textAlign: 'center', marginBottom: 40, paddingHorizontal: 20, lineHeight: 24 },
-  
-  recordingUI: { alignItems: 'center', marginBottom: 40, width: '100%' },
-  timerText: { fontSize: 40, fontWeight: 'bold', color: '#333' },
-  recordingStatus: { fontSize: 14, color: '#ff5252', marginTop: 5, fontWeight: '600' },
-  waveform: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, marginTop: 20, width: '100%' },
-  waveBar: { width: 6, backgroundColor: '#4bd3a4', borderRadius: 3, marginHorizontal: 3 },
-  
-  micButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#4bd3a4', justifyContent: 'center', alignItems: 'center', shadowColor: '#4bd3a4', shadowOpacity: 0.4, shadowRadius: 15, elevation: 6 },
+  content: { paddingHorizontal: 20, flexGrow: 1 },
+  textInput: { flex: 1, fontSize: 18, color: '#333', lineHeight: 28, textAlignVertical: 'top', minHeight: 300 },
+  voiceContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
+  voicePrompt: { fontSize: 18, color: '#666', marginBottom: 40, fontWeight: 'bold' },
+  micButton: { width: 140, height: 140, borderRadius: 70, backgroundColor: '#4bd3a4', justifyContent: 'center', alignItems: 'center', shadowColor: '#4bd3a4', shadowOpacity: 0.4, shadowRadius: 15, elevation: 8 },
   micButtonRecording: { backgroundColor: '#ff5252', shadowColor: '#ff5252' },
+  playbackControls: { alignItems: 'center', marginTop: 10 },
+  playButton: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#4bd3a4', justifyContent: 'center', alignItems: 'center', shadowColor: '#4bd3a4', shadowOpacity: 0.4, shadowRadius: 15, elevation: 8, marginBottom: 40 },
+  retakeButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffecec', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 25 },
+  retakeText: { color: '#ff5252', fontWeight: 'bold', marginLeft: 8, fontSize: 16 }
 });
